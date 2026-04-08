@@ -146,10 +146,10 @@ def run_episode(task_name: str) -> None:
     except Exception as exc:
         sys.stderr.write(f"[EXCEPTION] task={task_name} {exc}\n")
     finally:
-        env._obs = None  # cleanup
+        env.close()  # spec requires close() before [END]
 
     success = score >= SOLVED_THRESHOLD
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards) or "0.00"
 
     # Emit [END]
     print(
