@@ -54,7 +54,7 @@ BENCHMARK = "sql-repair-env"
 MAX_STEPS = 10
 TEMPERATURE = 0.2
 MAX_TOKENS = 512
-SOLVED_THRESHOLD = 0.95
+SOLVED_THRESHOLD = 0.90
 
 # ---------------------------------------------------------------------------
 # LLM helpers

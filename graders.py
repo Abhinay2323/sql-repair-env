@@ -137,10 +137,10 @@ def _compute_score(
 
     # Perfect match shortcut
     if actual_cols == expected_cols and _row_to_key(actual_rows) == _row_to_key(expected_rows):
-        return 1.0, col_overlap, row_f1
+        return 0.99, col_overlap, row_f1
 
     score = 0.20 * col_overlap + 0.80 * row_f1
-    score = round(min(max(score, 0.0), 1.0), 6)
+    score = round(min(max(score, 0.01), 0.99), 6)
 
     return score, col_overlap, row_f1
 
@@ -178,20 +178,20 @@ def grade(
         conn.executescript(db_setup)
     except Exception as exc:
         conn.close()
-        return 0.0, QueryResult(error=f"DB setup error: {exc}"), {}
+        return 0.01, QueryResult(error=f"DB setup error: {exc}"), {}
 
     # Step 2: Execute expected query
     expected_cols, expected_rows, expected_err = _execute_query(conn, expected_query)
     if expected_err:
         conn.close()
-        return 0.0, QueryResult(error=f"Expected query error: {expected_err}"), {}
+        return 0.01, QueryResult(error=f"Expected query error: {expected_err}"), {}
 
     # Step 3: Execute submitted query
     actual_cols, actual_rows, actual_err = _execute_query(conn, submitted_query)
     conn.close()
 
     if actual_err:
-        return 0.0, QueryResult(error=actual_err), {"execution_error": actual_err}
+        return 0.01, QueryResult(error=actual_err), {"execution_error": actual_err}
 
     # Step 4: Build result object
     result = QueryResult(
