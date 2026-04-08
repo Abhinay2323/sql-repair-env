@@ -3,3 +3,6 @@ __pycache__/
 *.pyo
 .venv/
 .env
+sql_repair_env/
+server/main.py
+validation.sh
