@@ -1,89 +1,148 @@
 """
-Graders for the SQL Repair Environment.
+SQL Repair Grader
 
-Each grader:
-  1. Creates an in-memory SQLite database from db_setup SQL
-  2. Executes the expected query to obtain ground-truth results
-  3. Executes the submitted query
-  4. Computes a score in [0.0, 1.0] with partial credit
+This module evaluates a submitted SQL query against an expected query
+by executing both on an in-memory SQLite database.
 
-Scoring algorithm (deterministic):
-  - Query fails to parse/execute          → 0.00
-  - Executes, no columns match            → 0.05
-  - Some columns match                    → 0.05 + column_overlap * 0.15
-  - Rows partially match (F1 on row sets) → above + 0.80 * row_f1
-  - Perfect match (all rows, all values)  → 1.00
+Scoring Rules:
+--------------
+1. Execution failure                  → 0.00
+2. No column overlap                 → 0.05
+3. Partial column match              → 0.05 + (column_overlap * 0.15)
+4. Row similarity (F1 score)         → above + (0.80 * row_f1)
+5. Perfect match                     → 1.00
 """
 
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from models import QueryResultModel as QueryResult
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Database Utilities
 # ---------------------------------------------------------------------------
 
-def _run_query(conn: sqlite3.Connection, sql: str) -> Tuple[List[str], List[List[Any]], str | None]:
-    """Execute *sql* and return (columns, rows, error_or_None)."""
+def _execute_query(
+    conn: sqlite3.Connection, sql: str
+) -> Tuple[List[str], List[List[Any]], Optional[str]]:
+    """
+    Execute a SQL query safely.
+
+    Returns:
+        columns: List of column names
+        rows: Query result rows
+        error: Error message if execution fails, else None
+    """
     try:
         cursor = conn.execute(sql)
-        cols = [d[0] for d in cursor.description] if cursor.description else []
-        rows = [list(r) for r in cursor.fetchall()]
-        return cols, rows, None
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        rows = [list(row) for row in cursor.fetchall()]
+        return columns, rows, None
     except Exception as exc:
         return [], [], str(exc)
 
 
-def _normalise_value(v: Any) -> str:
-    """Stable string representation for comparison (floats rounded to 4 dp)."""
-    if isinstance(v, float):
-        return f"{v:.4f}"
-    return str(v) if v is not None else "NULL"
+# ---------------------------------------------------------------------------
+# Normalization Helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_value(value: Any) -> str:
+    """
+    Normalize values into a stable string format for comparison.
+    Floats are rounded to 4 decimal places.
+    """
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value) if value is not None else "NULL"
 
 
-def _row_key(row: List[Any]) -> tuple:
-    return tuple(_normalise_value(v) for v in row)
+def _row_to_key(row: List[Any]) -> Tuple[str, ...]:
+    """Convert a row into a comparable tuple key."""
+    return tuple(_normalize_value(v) for v in row)
 
 
-def _col_overlap(actual_cols: List[str], expected_cols: List[str]) -> float:
+# ---------------------------------------------------------------------------
+# Scoring Helpers
+# ---------------------------------------------------------------------------
+
+def _calculate_column_overlap(
+    actual_cols: List[str], expected_cols: List[str]
+) -> float:
+    """
+    Compute column overlap ratio (case-insensitive).
+    """
     if not expected_cols:
         return 1.0
-    actual_set = {c.lower() for c in actual_cols}
-    expected_set = {c.lower() for c in expected_cols}
+
+    actual_set = {col.lower() for col in actual_cols}
+    expected_set = {col.lower() for col in expected_cols}
+
     return len(actual_set & expected_set) / len(expected_set)
 
 
-def _row_f1(actual_rows: List[List[Any]], expected_rows: List[List[Any]]) -> float:
+def _calculate_row_f1(
+    actual_rows: List[List[Any]], expected_rows: List[List[Any]]
+) -> float:
+    """
+    Compute F1 score between actual and expected rows using multiset logic.
+    """
     if not expected_rows and not actual_rows:
         return 1.0
     if not expected_rows or not actual_rows:
         return 0.0
 
-    actual_set = {}
-    for r in actual_rows:
-        k = _row_key(r)
-        actual_set[k] = actual_set.get(k, 0) + 1
+    def build_multiset(rows: List[List[Any]]) -> Dict[Tuple[str, ...], int]:
+        multiset: Dict[Tuple[str, ...], int] = {}
+        for row in rows:
+            key = _row_to_key(row)
+            multiset[key] = multiset.get(key, 0) + 1
+        return multiset
 
-    expected_set = {}
-    for r in expected_rows:
-        k = _row_key(r)
-        expected_set[k] = expected_set.get(k, 0) + 1
+    actual_multiset = build_multiset(actual_rows)
+    expected_multiset = build_multiset(expected_rows)
 
-    # Multiset intersection count
-    common = sum(
-        min(actual_set.get(k, 0), cnt)
-        for k, cnt in expected_set.items()
+    # Intersection count
+    common_count = sum(
+        min(actual_multiset.get(key, 0), count)
+        for key, count in expected_multiset.items()
     )
 
-    precision = common / len(actual_rows) if actual_rows else 0.0
-    recall = common / len(expected_rows) if expected_rows else 0.0
+    precision = common_count / len(actual_rows) if actual_rows else 0.0
+    recall = common_count / len(expected_rows) if expected_rows else 0.0
+
     if precision + recall == 0:
         return 0.0
+
     return 2 * precision * recall / (precision + recall)
+
+
+# ---------------------------------------------------------------------------
+# Core Grading Logic
+# ---------------------------------------------------------------------------
+
+def _compute_score(
+    actual_cols: List[str],
+    expected_cols: List[str],
+    actual_rows: List[List[Any]],
+    expected_rows: List[List[Any]],
+) -> Tuple[float, float, float]:
+    """
+    Compute final score along with intermediate metrics.
+    """
+    col_overlap = _calculate_column_overlap(actual_cols, expected_cols)
+    row_f1 = _calculate_row_f1(actual_rows, expected_rows)
+
+    # Perfect match shortcut
+    if actual_cols == expected_cols and _row_to_key(actual_rows) == _row_to_key(expected_rows):
+        return 1.0, col_overlap, row_f1
+
+    score = 0.20 * col_overlap + 0.80 * row_f1
+    score = round(min(max(score, 0.0), 1.0), 6)
+
+    return score, col_overlap, row_f1
 
 
 # ---------------------------------------------------------------------------
@@ -96,68 +155,64 @@ def grade(
     db_setup: str,
 ) -> Tuple[float, QueryResult, Dict[str, Any]]:
     """
-    Grade *submitted_query* against *expected_query* on a fresh in-memory DB.
+    Evaluate a submitted SQL query against an expected query.
 
-    Returns
-    -------
-    score : float
-        Value in [0.0, 1.0].
-    result : QueryResult
-        The result of executing *submitted_query* (or error info).
-    info : dict
-        Diagnostic metadata (expected_rows, actual_rows, col_overlap, row_f1).
+    Workflow:
+        1. Initialize in-memory database
+        2. Execute DB setup script
+        3. Run expected query (ground truth)
+        4. Run submitted query
+        5. Compare results and compute score
+
+    Returns:
+        score: Float in range [0.0, 1.0]
+        result: QueryResult object for submitted query
+        info: Diagnostic metadata
     """
     conn = sqlite3.connect(":memory:")
     conn.execute("PRAGMA journal_mode=OFF")
     conn.execute("PRAGMA synchronous=OFF")
 
+    # Step 1: Setup DB
     try:
         conn.executescript(db_setup)
     except Exception as exc:
         conn.close()
         return 0.0, QueryResult(error=f"DB setup error: {exc}"), {}
 
-    # Ground-truth results
-    exp_cols, exp_rows, exp_err = _run_query(conn, expected_query)
-    if exp_err:
+    # Step 2: Execute expected query
+    expected_cols, expected_rows, expected_err = _execute_query(conn, expected_query)
+    if expected_err:
         conn.close()
-        return 0.0, QueryResult(error=f"Expected query error: {exp_err}"), {}
+        return 0.0, QueryResult(error=f"Expected query error: {expected_err}"), {}
 
-    # Submitted query
-    act_cols, act_rows, act_err = _run_query(conn, submitted_query)
+    # Step 3: Execute submitted query
+    actual_cols, actual_rows, actual_err = _execute_query(conn, submitted_query)
     conn.close()
 
-    if act_err:
-        return 0.0, QueryResult(error=act_err), {"execution_error": act_err}
+    if actual_err:
+        return 0.0, QueryResult(error=actual_err), {"execution_error": actual_err}
 
+    # Step 4: Build result object
     result = QueryResult(
-        columns=act_cols,
-        rows=act_rows,
-        row_count=len(act_rows),
+        columns=actual_cols,
+        rows=actual_rows,
+        row_count=len(actual_rows),
     )
 
-    # --- Score calculation ---
-    col_ov = _col_overlap(act_cols, exp_cols)
-    rf1 = _row_f1(act_rows, exp_rows)
+    # Step 5: Compute score
+    score, col_overlap, row_f1 = _compute_score(
+        actual_cols, expected_cols, actual_rows, expected_rows
+    )
 
-    # Perfect match shortcut
-    if act_cols == exp_cols and _row_key(act_rows) == _row_key(exp_rows):
-        score = 1.0
-    else:
-        # 0.20 for columns, 0.80 for rows
-        score = 0.20 * col_ov + 0.80 * rf1
-        # Clamp
-        score = min(max(score, 0.0), 1.0)
-        # Round to avoid floating-point drift
-        score = round(score, 6)
-
+    # Step 6: Diagnostics
     info: Dict[str, Any] = {
-        "expected_rows": len(exp_rows),
-        "actual_rows": len(act_rows),
-        "expected_cols": exp_cols,
-        "actual_cols": act_cols,
-        "col_overlap": round(col_ov, 4),
-        "row_f1": round(rf1, 4),
+        "expected_rows": len(expected_rows),
+        "actual_rows": len(actual_rows),
+        "expected_cols": expected_cols,
+        "actual_cols": actual_cols,
+        "col_overlap": round(col_overlap, 4),
+        "row_f1": round(row_f1, 4),
     }
 
     return score, result, info
