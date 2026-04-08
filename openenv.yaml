@@ -1,0 +1,97 @@
+name: sql-repair-env
+version: "1.0.0"
+description: >
+  SQL Query Repair Environment — agents debug and fix broken SQL queries
+  across three difficulty levels. Simulates real-world database engineering
+  tasks: syntax correction, logic debugging, and complex analytics repair.
+author: "sql-repair-env"
+tags:
+  - sql
+  - database
+  - debugging
+  - code-repair
+  - openenv
+
+api:
+  reset: "POST /reset"
+  step: "POST /step"
+  state: "GET /state"
+
+tasks:
+  - name: fix_syntax
+    description: >
+      Fix three typos in a simple SELECT query on an employee salary table.
+      Errors include misspelled column names, table name, and keyword.
+    difficulty: easy
+    max_steps: 8
+    reward_threshold: 0.9
+
+  - name: fix_logic
+    description: >
+      Fix a wrong JOIN condition in a multi-table sales query.
+      The query joins on product_id instead of customer_id,
+      producing completely incorrect aggregations.
+    difficulty: medium
+    max_steps: 12
+    reward_threshold: 0.9
+
+  - name: complex_analytics
+    description: >
+      Fix three subtle bugs in a CTE-based user revenue analytics query:
+      AVG used instead of SUM for revenue, wrong status string casing,
+      and wrong HAVING clause filtering out active customers.
+    difficulty: hard
+    max_steps: 15
+    reward_threshold: 0.9
+
+action_space:
+  type: object
+  description: "Submit a SQL query for evaluation"
+  properties:
+    action_type:
+      type: string
+      enum: ["submit_query"]
+      description: "Always 'submit_query'"
+    query:
+      type: string
+      description: "The SQL query to execute and evaluate"
+  required:
+    - action_type
+    - query
+
+observation_space:
+  type: object
+  properties:
+    task_id:
+      type: string
+      description: "Task identifier"
+    task_description:
+      type: string
+      description: "Natural language description of what the correct query should return"
+    schema_info:
+      type: string
+      description: "Database schema with table and column definitions"
+    broken_query:
+      type: string
+      description: "The original broken query that needs to be fixed"
+    current_query:
+      type: string
+      description: "The agent's most recently submitted query"
+    last_result:
+      type: object
+      description: "Result of the last executed query (columns, rows, row_count)"
+    last_error:
+      type: string
+      description: "Error message from the last failed query attempt, or null"
+    attempts_used:
+      type: integer
+      description: "Number of query submissions so far"
+    max_attempts:
+      type: integer
+      description: "Maximum allowed submissions"
+    done:
+      type: boolean
+      description: "Whether the episode has ended"
+    reward:
+      type: number
+      description: "Reward from the last step, in [0.0, 1.0]"
