@@ -21,9 +21,25 @@ Output format (strict)
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
+# ---------------------------------------------------------------------------
+# Auto-install deps — the evaluator runs `python inference.py` directly
+# with plain Python (no venv / uv run), so packages must be available.
+# ---------------------------------------------------------------------------
+_REQUIRED = ["openai>=1.55.0", "openenv-core>=0.2.0"]
+try:
+    import openai as _oa  # noqa: F401
+    import openenv as _oe  # noqa: F401
+except ImportError:
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", *_REQUIRED, "-q"],
+        stdout=subprocess.DEVNULL,
+    )
+
 import os
 import re
-import sys
 from typing import List, Optional
 
 from openai import OpenAI
