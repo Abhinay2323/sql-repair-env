@@ -19,6 +19,10 @@ RUN uv sync --frozen --no-dev
 # Must happen AFTER uv sync so .venv is owned by appuser from the start
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 
+# Enable the Gradio web UI served at /web by openenv-core.
+# Without this the root "/" returns 404 (plain FastAPI has no root route).
+ENV ENABLE_WEB_INTERFACE=true
+
 EXPOSE 7860
 
 USER appuser
