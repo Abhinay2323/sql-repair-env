@@ -44,6 +44,33 @@ tasks:
     max_steps: 15
     reward_threshold: 0.9
 
+  - name: fix_null_handling
+    description: >
+      Fix a NULL-handling bug in a sales commission query. Reps with no
+      commission_rate set should default to 5%, but direct multiplication
+      by NULL silently produces wrong regional totals.
+    difficulty: medium
+    max_steps: 10
+    reward_threshold: 0.9
+
+  - name: fix_duplicate_count
+    description: >
+      Fix an inflated order-count caused by joining orders with order_items.
+      The fan-out from multiple items per order makes COUNT(*) count item
+      rows instead of orders.
+    difficulty: medium
+    max_steps: 10
+    reward_threshold: 0.9
+
+  - name: fix_window_rank
+    description: >
+      Fix a window function that ranks employees globally instead of
+      per-department. Missing PARTITION BY causes only the 2 top-paid
+      company-wide employees to be returned instead of the top 2 per dept.
+    difficulty: hard
+    max_steps: 15
+    reward_threshold: 0.9
+
 action_space:
   type: object
   description: "Submit a SQL query for evaluation"

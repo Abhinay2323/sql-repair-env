@@ -21,18 +21,9 @@ Output format (strict)
 
 from __future__ import annotations
 
-import subprocess
-import sys
-
-# Auto-install required packages if not present (judges run `python inference.py` directly)
-_DEPS = ["openai>=1.55.0", "openenv-core>=0.2.0", "uvicorn>=0.32.0"]
-subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", *_DEPS, "-q"],
-    stdout=subprocess.DEVNULL,
-)
-
 import os
 import re
+import sys
 from typing import List, Optional
 
 from openai import OpenAI

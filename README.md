@@ -94,12 +94,36 @@ progress toward the solution.
 ### 3. `complex_analytics` — Hard (max 15 steps)
 
 **Domain:** E-commerce user revenue analytics with CTEs
-**Bug count:** 3 subtle bugs
-1. `AVG(oi.quantity * oi.unit_price)` → `SUM(...)` (wrong aggregation)
-2. `o.status = 'COMPLETED'` → `'completed'` (SQLite is case-sensitive)
-3. `HAVING total_revenue > 100` → `HAVING num_orders >= 2` (wrong filter)
+**Bug count:** 3 subtle bugs — wrong aggregation function, case-sensitive status filter, incorrect HAVING clause
 
 **Baseline score:** ~0.50–0.80
+
+---
+
+### 4. `fix_null_handling` — Medium (max 10 steps)
+
+**Domain:** Sales commission calculation with nullable rates
+**Bug count:** 1 — missing `COALESCE` causes NULL × amount = NULL, silently zeroing those reps' contributions to regional totals
+
+**Baseline score:** ~0.85–1.00
+
+---
+
+### 5. `fix_duplicate_count` — Medium (max 10 steps)
+
+**Domain:** E-commerce order counting across customers
+**Bug count:** 1 — `COUNT(*)` after joining `order_items` counts item rows, not orders (fan-out trap); fix is `COUNT(DISTINCT o.order_id)`
+
+**Baseline score:** ~0.85–1.00
+
+---
+
+### 6. `fix_window_rank` — Hard (max 15 steps)
+
+**Domain:** Employee salary ranking per department using window functions
+**Bug count:** 1 — `ROW_NUMBER() OVER (ORDER BY salary DESC)` ranks globally; missing `PARTITION BY department` means only the 2 highest-paid company-wide are returned instead of top 2 per department
+
+**Baseline score:** ~0.40–0.75
 
 ---
 
@@ -180,11 +204,14 @@ TASK_NAME=fix_syntax uv run python inference.py
 
 Tested with `Qwen/Qwen2.5-72B-Instruct` via HuggingFace Inference API:
 
-| Task              | Difficulty | Expected Score | Typical Steps |
-|------------------|-----------|---------------|---------------|
-| fix_syntax        | Easy       | 0.95–1.00     | 1–2           |
-| fix_logic         | Medium     | 0.80–1.00     | 1–3           |
-| complex_analytics | Hard       | 0.50–0.85     | 3–8           |
+| Task                | Difficulty | Expected Score | Typical Steps |
+|--------------------|-----------|---------------|---------------|
+| fix_syntax          | Easy       | 0.95–1.00     | 1–2           |
+| fix_logic           | Medium     | 0.80–1.00     | 1–3           |
+| fix_null_handling   | Medium     | 0.85–1.00     | 1–2           |
+| fix_duplicate_count | Medium     | 0.85–1.00     | 1–3           |
+| complex_analytics   | Hard       | 0.50–0.85     | 3–8           |
+| fix_window_rank     | Hard       | 0.40–0.75     | 3–10          |
 
 ---
 

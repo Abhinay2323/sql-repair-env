@@ -369,6 +369,265 @@ The query has THREE bugs — find and fix all of them.\
 """
 
 # ---------------------------------------------------------------------------
+# TASK 4  ·  fix_null_handling  ·  MEDIUM
+# Bug: commission_rate can be NULL (meaning "use default 5%").
+# The broken query multiplies sales_amount * commission_rate directly,
+# producing NULL for reps with no rate — those rows silently contribute 0
+# to SUM, giving wrong regional totals.
+# Fix: wrap commission_rate with COALESCE(commission_rate, 0.05).
+# ---------------------------------------------------------------------------
+
+TASK_NULL_HANDLING_SETUP = """
+CREATE TABLE sales_reps (
+    rep_id          INTEGER PRIMARY KEY,
+    rep_name        TEXT    NOT NULL,
+    region          TEXT    NOT NULL,
+    sales_amount    REAL    NOT NULL,
+    commission_rate REAL            -- NULL means use default 5 %
+);
+
+INSERT INTO sales_reps VALUES
+(1, 'Alice',  'North', 50000.0, 0.08),
+(2, 'Bob',    'North', 30000.0, NULL),
+(3, 'Carol',  'South', 45000.0, 0.07),
+(4, 'David',  'South', 20000.0, NULL),
+(5, 'Eve',    'East',  60000.0, 0.10),
+(6, 'Frank',  'East',  25000.0, 0.06),
+(7, 'Grace',  'West',  35000.0, NULL);
+"""
+# Expected totals:
+#   East  = 60000*0.10 + 25000*0.06 = 6000 + 1500 = 7500
+#   North = 50000*0.08 + 30000*0.05 = 4000 + 1500 = 5500
+#   South = 45000*0.07 + 20000*0.05 = 3150 + 1000 = 4150
+#   West  = 35000*0.05               =                1750
+
+TASK_NULL_HANDLING_BROKEN = """\
+SELECT region,
+       ROUND(SUM(sales_amount * commission_rate), 2) AS total_commission
+FROM sales_reps
+GROUP BY region
+ORDER BY total_commission DESC;\
+"""
+
+TASK_NULL_HANDLING_EXPECTED = """\
+SELECT region,
+       ROUND(SUM(sales_amount * COALESCE(commission_rate, 0.05)), 2) AS total_commission
+FROM sales_reps
+GROUP BY region
+ORDER BY total_commission DESC;\
+"""
+
+TASK_NULL_HANDLING_SCHEMA = """\
+Table: sales_reps
+  rep_id          INTEGER  PRIMARY KEY
+  rep_name        TEXT     Sales representative name
+  region          TEXT     Sales region ('North', 'South', 'East', 'West')
+  sales_amount    REAL     Total sales in USD for this rep
+  commission_rate REAL     Commission rate (0.0 – 1.0); NULL = use company default of 0.05\
+"""
+
+TASK_NULL_HANDLING_DESCRIPTION = """\
+Return the total commission earned per region, sorted from highest to lowest.
+
+Commission for each rep = sales_amount × commission_rate.
+Reps whose commission_rate is NULL should use the company default rate of 0.05.
+
+The query has ONE bug that silently produces wrong totals for regions
+that have reps with no commission_rate set. Find and fix it.\
+"""
+
+# ---------------------------------------------------------------------------
+# TASK 5  ·  fix_duplicate_count  ·  MEDIUM
+# Bug: COUNT(*) after a JOIN with order_items counts item rows, not orders.
+# Classic fan-out trap: each order has multiple items, so joining inflates
+# the count. Fix: COUNT(DISTINCT o.order_id).
+# ---------------------------------------------------------------------------
+
+TASK_DUPLICATE_COUNT_SETUP = """
+CREATE TABLE customers (
+    customer_id   INTEGER PRIMARY KEY,
+    customer_name TEXT    NOT NULL
+);
+
+CREATE TABLE orders (
+    order_id    INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL,
+    order_date  TEXT    NOT NULL
+);
+
+CREATE TABLE order_items (
+    item_id   INTEGER PRIMARY KEY,
+    order_id  INTEGER NOT NULL,
+    product   TEXT    NOT NULL,
+    quantity  INTEGER NOT NULL
+);
+
+INSERT INTO customers VALUES
+(1, 'Alice'), (2, 'Bob'), (3, 'Carol'), (4, 'David');
+
+-- Alice: 2 orders
+INSERT INTO orders VALUES
+(1, 1, '2024-01-10'),
+(2, 1, '2024-02-15');
+
+-- Bob: 1 order
+INSERT INTO orders VALUES
+(3, 2, '2024-01-20');
+
+-- Carol: 2 orders
+INSERT INTO orders VALUES
+(4, 3, '2024-03-05'),
+(5, 3, '2024-03-10');
+
+-- David: 0 orders (excluded by INNER JOIN)
+
+-- order_items: order 1 → 1 item, order 2 → 3 items
+INSERT INTO order_items VALUES
+(1, 1, 'Laptop',   1),
+(2, 2, 'Mouse',    2),
+(3, 2, 'Keyboard', 1),
+(4, 2, 'Monitor',  1);
+
+-- Bob order 3 → 2 items
+INSERT INTO order_items VALUES
+(5, 3, 'Desk',  1),
+(6, 3, 'Chair', 2);
+
+-- Carol order 4 → 1 item, order 5 → 2 items
+INSERT INTO order_items VALUES
+(7, 4, 'Notebook', 5),
+(8, 5, 'Pen',     10),
+(9, 5, 'Paper',    3);
+"""
+# Correct order_count: Alice=2, Carol=2, Bob=1
+# Broken COUNT(*) would give: Alice=4(1+3), Carol=3(1+2), Bob=2
+
+TASK_DUPLICATE_COUNT_BROKEN = """\
+SELECT c.customer_name,
+       COUNT(*) AS order_count
+FROM customers c
+JOIN orders     o  ON c.customer_id = o.customer_id
+JOIN order_items oi ON o.order_id  = oi.order_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY order_count DESC, c.customer_name ASC;\
+"""
+
+TASK_DUPLICATE_COUNT_EXPECTED = """\
+SELECT c.customer_name,
+       COUNT(DISTINCT o.order_id) AS order_count
+FROM customers c
+JOIN orders     o  ON c.customer_id = o.customer_id
+JOIN order_items oi ON o.order_id  = oi.order_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY order_count DESC, c.customer_name ASC;\
+"""
+
+TASK_DUPLICATE_COUNT_SCHEMA = """\
+Table: customers
+  customer_id   INTEGER  PRIMARY KEY
+  customer_name TEXT     Customer full name
+
+Table: orders
+  order_id    INTEGER  PRIMARY KEY
+  customer_id INTEGER  FK → customers.customer_id
+  order_date  TEXT     ISO date string (YYYY-MM-DD)
+
+Table: order_items
+  item_id   INTEGER  PRIMARY KEY
+  order_id  INTEGER  FK → orders.order_id
+  product   TEXT     Product name
+  quantity  INTEGER  Units ordered\
+"""
+
+TASK_DUPLICATE_COUNT_DESCRIPTION = """\
+Return each customer and the number of orders they have placed,
+sorted by order_count descending (break ties alphabetically by customer_name).
+
+Only include customers who have placed at least one order.
+
+The query produces inflated order counts due to a subtle JOIN behaviour.
+Find the ONE bug and fix it.\
+"""
+
+# ---------------------------------------------------------------------------
+# TASK 6  ·  fix_window_rank  ·  HARD
+# Bug: ROW_NUMBER() uses no PARTITION BY, so it ranks employees globally
+# instead of per-department.  Result: only the 2 top-paid employees across
+# the whole company are returned, not the top 2 per department.
+# Fix: add PARTITION BY department inside the OVER clause.
+# ---------------------------------------------------------------------------
+
+TASK_WINDOW_RANK_SETUP = """
+CREATE TABLE employees (
+    emp_id     INTEGER PRIMARY KEY,
+    emp_name   TEXT    NOT NULL,
+    department TEXT    NOT NULL,
+    salary     REAL    NOT NULL
+);
+
+INSERT INTO employees VALUES
+(1, 'Alice',  'Engineering', 95000),
+(2, 'Bob',    'Engineering', 88000),
+(3, 'Carol',  'Engineering', 102000),
+(4, 'David',  'Marketing',   72000),
+(5, 'Eve',    'Marketing',   78000),
+(6, 'Frank',  'Marketing',   68000),
+(7, 'Grace',  'HR',          69000),
+(8, 'Henry',  'HR',          65000),
+(9, 'Iris',   'HR',          74000);
+"""
+# Expected (top 2 per dept, ordered dept ASC then salary DESC):
+#   Engineering: Carol 102000, Alice 95000
+#   HR:          Iris  74000,  Grace 69000
+#   Marketing:   Eve   78000,  David 72000
+
+TASK_WINDOW_RANK_BROKEN = """\
+SELECT emp_name, department, salary, dept_rank
+FROM (
+    SELECT
+        emp_name,
+        department,
+        salary,
+        ROW_NUMBER() OVER (ORDER BY salary DESC) AS dept_rank
+    FROM employees
+)
+WHERE dept_rank <= 2
+ORDER BY department ASC, salary DESC;\
+"""
+
+TASK_WINDOW_RANK_EXPECTED = """\
+SELECT emp_name, department, salary, dept_rank
+FROM (
+    SELECT
+        emp_name,
+        department,
+        salary,
+        ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) AS dept_rank
+    FROM employees
+)
+WHERE dept_rank <= 2
+ORDER BY department ASC, salary DESC;\
+"""
+
+TASK_WINDOW_RANK_SCHEMA = """\
+Table: employees
+  emp_id     INTEGER  PRIMARY KEY
+  emp_name   TEXT     Employee full name
+  department TEXT     Department ('Engineering', 'Marketing', 'HR')
+  salary     REAL     Annual salary in USD\
+"""
+
+TASK_WINDOW_RANK_DESCRIPTION = """\
+Return the top 2 highest-paid employees in EACH department.
+For every qualifying employee, return: emp_name, department, salary, dept_rank.
+
+Sort the final result by department ascending, then salary descending within each department.
+
+The query executes without error but returns wrong employees.
+There is ONE bug in the window function definition. Find and fix it.\
+"""
+
+# ---------------------------------------------------------------------------
 # Master task registry
 # ---------------------------------------------------------------------------
 
@@ -404,6 +663,39 @@ TASKS: dict = {
         "expected_query": TASK_COMPLEX_ANALYTICS_EXPECTED,
         "schema_info": TASK_COMPLEX_ANALYTICS_SCHEMA,
         "task_description": TASK_COMPLEX_ANALYTICS_DESCRIPTION,
+        "ordered": True,
+    },
+    "fix_null_handling": {
+        "name": "fix_null_handling",
+        "difficulty": "medium",
+        "max_steps": 10,
+        "db_setup": TASK_NULL_HANDLING_SETUP,
+        "broken_query": TASK_NULL_HANDLING_BROKEN,
+        "expected_query": TASK_NULL_HANDLING_EXPECTED,
+        "schema_info": TASK_NULL_HANDLING_SCHEMA,
+        "task_description": TASK_NULL_HANDLING_DESCRIPTION,
+        "ordered": True,
+    },
+    "fix_duplicate_count": {
+        "name": "fix_duplicate_count",
+        "difficulty": "medium",
+        "max_steps": 10,
+        "db_setup": TASK_DUPLICATE_COUNT_SETUP,
+        "broken_query": TASK_DUPLICATE_COUNT_BROKEN,
+        "expected_query": TASK_DUPLICATE_COUNT_EXPECTED,
+        "schema_info": TASK_DUPLICATE_COUNT_SCHEMA,
+        "task_description": TASK_DUPLICATE_COUNT_DESCRIPTION,
+        "ordered": True,
+    },
+    "fix_window_rank": {
+        "name": "fix_window_rank",
+        "difficulty": "hard",
+        "max_steps": 15,
+        "db_setup": TASK_WINDOW_RANK_SETUP,
+        "broken_query": TASK_WINDOW_RANK_BROKEN,
+        "expected_query": TASK_WINDOW_RANK_EXPECTED,
+        "schema_info": TASK_WINDOW_RANK_SCHEMA,
+        "task_description": TASK_WINDOW_RANK_DESCRIPTION,
         "ordered": True,
     },
 }
