@@ -15,6 +15,14 @@ COPY server/ ./server/
 # Full install including the project itself (runs as root during build = no permission issues)
 RUN uv sync --frozen --no-dev
 
+# Create non-root user required by HuggingFace Spaces, then transfer ownership
+# Must happen AFTER uv sync so .venv is owned by appuser from the start
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
 EXPOSE 7860
 
-CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
+USER appuser
+
+# Use venv's uvicorn directly — avoids uv trying to re-install the project
+# at runtime as non-root (which caused the Permission Denied error on HF Spaces)
+CMD ["/app/.venv/bin/uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
